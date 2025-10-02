@@ -12,31 +12,47 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${OUT_LIB})
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${OUT_LIB})
 
 # Third party
+set(SPIRV_SKIP_EXECUTABLES ON CACHE BOOL "" FORCE)
+set(SPIRV_SKIP_TESTS ON CACHE BOOL "" FORCE)
+set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
+set(SPIRV_TOOLS_BUILD_CPP_EXAMPLES OFF CACHE BOOL "" FORCE)
+
 add_subdirectory(external/SPIRV-Headers)
 add_subdirectory(external/SPIRV-Tools)
 add_subdirectory(external/glslang)
 add_subdirectory(external/SPIRV-Cross)
 
-set(SPIRV-Headers_SOURCE_DIR "${CMAKE_SOURCE_DIR}/external/SPIRV-Headers")
-
-add_library(shader_pipe SHARED
+add_library(shaderpipe SHARED
         src/shader_pipe.cpp
         include/shader_pipe.hpp
 )
 
-target_compile_definitions(shader_pipe PRIVATE SHADERPIPE_EXPORTS)
+target_compile_definitions(shaderpipe PRIVATE SHADERPIPE_EXPORTS)
 
-target_include_directories(shader_pipe PUBLIC
+target_include_directories(shaderpipe PUBLIC
         include
         external/glslang
         external/SPIRV-Tools/include
         external/SPIRV-Cross
 )
 
-target_link_libraries(shader_pipe PRIVATE
+target_link_libraries(shaderpipe PRIVATE
         glslang
         SPIRV
         SPIRV-Tools-opt
         spirv-cross-core
         spirv-cross-glsl
+)
+
+# removes "lib" prefix
+set_target_properties(shaderpipe PROPERTIES
+        OUTPUT_NAME "shaderpipe"
+        PREFIX ""
+)
+
+# Test executable
+add_executable(shaderpipe_test src/main.cpp)
+
+target_link_libraries(shaderpipe_test
+        PRIVATE shaderpipe
 )

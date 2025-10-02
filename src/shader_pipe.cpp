@@ -142,7 +142,7 @@ std::string load_shader_file(const std::string& filename) {
     std::ifstream file(filename);
 
     if (!file.is_open()) {
-        return "";
+        throw std::runtime_error("Shader file could not be opened.");
     }
 
     std::stringstream buffer;
@@ -153,12 +153,32 @@ std::string load_shader_file(const std::string& filename) {
     return buffer.str();
 }
 
-std::vector<uint32_t> glsl_to_spirv(const std::string &source) {
+std::vector<uint32_t> glsl_to_spirv(const std::string &source, ShaderStage stage) {
+    auto getStage = [](ShaderStage s) -> EShLanguage {
+      switch (s) {
+      default: case ShaderStage::VERTEX: return EShLangVertex;
+      case ShaderStage::TESS_CONTROL: return EShLangTessControl;
+      case ShaderStage::TESS_EVAL: return EShLangTessEvaluation;
+      case ShaderStage::GEOMETRY: return EShLangGeometry;
+      case ShaderStage::FRAGMENT: return EShLangFragment;
+      case ShaderStage::COMPUTE: return EShLangCompute;
+      case ShaderStage::RAYGEN: return EShLangRayGen;
+      case ShaderStage::INTERSECT: return EShLangIntersect;
+      case ShaderStage::ANY_HIT: return EShLangAnyHit;
+      case ShaderStage::CLOSEST_HIT: return EShLangClosestHit;
+      case ShaderStage::MISS: return EShLangMiss;
+      case ShaderStage::CALLABLE: return EShLangCallable;
+      case ShaderStage::TASK: return EShLangTask;
+      case ShaderStage::MESH: return EShLangMesh;
+      }  // not sure what else to default to
+    };
+
     const char* glslSource = source.c_str();
 
     glslang::InitializeProcess();
 
-    glslang::TShader shader(EShLangVertex);
+    auto sStage = getStage(stage);
+    glslang::TShader shader(sStage);
     shader.setStrings(&glslSource, 1);
 
     if (!shader.parse(&DefaultTBuiltInResource, 110, false, EShMsgDefault)) {
@@ -173,7 +193,7 @@ std::vector<uint32_t> glsl_to_spirv(const std::string &source) {
     }
 
     std::vector<uint32_t> spirv;
-    glslang::GlslangToSpv(*program.getIntermediate(EShLangVertex), spirv);
+    glslang::GlslangToSpv(*program.getIntermediate(sStage), spirv);
 
     glslang::FinalizeProcess();
 
@@ -198,7 +218,7 @@ std::string spirv_to_glsl (const std::vector<uint32_t>& source, GlVersion versio
     options.es = false;
     options.vulkan_semantics = false;
     options.separate_shader_objects = true;
-    options.enable_420pack_extension = true;
+    options.enable_420pack_extension = (options.version == 450);
 
     compiler.set_common_options(options);
 

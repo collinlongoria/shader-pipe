@@ -24,8 +24,29 @@
 #endif
 
 enum class ShaderStage : uint32_t {
-
-};
+    VERTEX,
+    TESS_CONTROL,
+    TESS_EVAL,
+    GEOMETRY,
+    FRAGMENT,
+    COMPUTE,
+    RAYGEN,
+    RAYGEN_NV = RAYGEN,
+    INTERSECT,
+    INTERSECT_NV = INTERSECT,
+    ANY_HIT,
+    ANY_HIT_NV = ANY_HIT,
+    CLOSEST_HIT,
+    CLOSEST_HIT_NV = CLOSEST_HIT,
+    MISS,
+    MISS_NV = MISS,
+    CALLABLE,
+    CALLABLE_NV = CALLABLE,
+    TASK,
+    TASK_NV = TASK,
+    MESH,
+    MESH_NV = MESH,
+}; // Same ones as provided in glslang
 
 enum class GlVersion : uint32_t {
     GL_310, // Mobile / Web
@@ -33,8 +54,8 @@ enum class GlVersion : uint32_t {
     GL_450, // Desktop
 };
 
-SHADERPIPE_API std::string           load_shader_file(const std::string& filename, ShaderStage stage);
-SHADERPIPE_API std::vector<uint32_t> glsl_to_spirv   (const std::string& source);
+SHADERPIPE_API std::string           load_shader_file(const std::string& filename);
+SHADERPIPE_API std::vector<uint32_t> glsl_to_spirv   (const std::string& source, ShaderStage stage);
 SHADERPIPE_API std::string           spirv_to_glsl   (const std::vector<uint32_t>& source, GlVersion version = GlVersion::GL_450);
 
 #endif //SHADER_PIPE_SHADER_PIPE_HPP
