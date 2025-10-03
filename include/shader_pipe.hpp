@@ -54,6 +54,7 @@ enum class GlVersion : uint32_t {
     GL_450, // Desktop
 };
 
+SHADERPIPE_API uint32_t              get_glsl_version(const std::string& source);
 SHADERPIPE_API std::string           load_shader_file(const std::string& filename);
 SHADERPIPE_API std::vector<uint32_t> glsl_to_spirv   (const std::string& source, ShaderStage stage);
 SHADERPIPE_API std::string           spirv_to_glsl   (const std::vector<uint32_t>& source, GlVersion version = GlVersion::GL_450);

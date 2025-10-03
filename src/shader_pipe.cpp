@@ -138,6 +138,32 @@ static const TBuiltInResource DefaultTBuiltInResource = {
         /* .generalConstantMatrixVectorIndexing = */ 1,
     }};
 
+/*
+*     std::string shaderSrc = R"(#version 450 core
+                               layout(location = 0) in vec3 aPos;)";
+
+    std::size_t pos = shaderSrc.find("#version");
+    if (pos != std::string::npos) {
+        std::size_t end = shaderSrc.find('\n', pos);
+        std::string line = shaderSrc.substr(pos, end - pos);
+
+        std::istringstream iss(line);
+        std::string directive, versionStr, profile;
+        iss >> directive >> versionStr >> profile;
+
+        if (directive == "#version") {
+            int version = std::stoi(versionStr);
+            std::cout << "GLSL version: " << version << "\n";
+            if (!profile.empty())
+                std::cout << "Profile: " << profile << "\n";
+        }
+    }
+ */
+uint32_t get_glsl_version(const std::string& source) {
+    static std::string substr = "#version";
+    return 0;
+}
+
 std::string load_shader_file(const std::string& filename) {
     std::ifstream file(filename);
 
@@ -181,7 +207,11 @@ std::vector<uint32_t> glsl_to_spirv(const std::string &source, ShaderStage stage
     glslang::TShader shader(sStage);
     shader.setStrings(&glslSource, 1);
 
-    if (!shader.parse(&DefaultTBuiltInResource, 110, false, EShMsgDefault)) {
+    shader.setEnvInput(glslang::EShSourceGlsl, sStage, glslang::EShClientOpenGL, 330);
+    shader.setEnvClient(glslang::EShClientOpenGL, glslang::EShTargetOpenGL_450);
+    shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_0);
+
+    if (!shader.parse(&DefaultTBuiltInResource, 450, false, EShMsgDefault)) {
         throw std::runtime_error(shader.getInfoLog());
     }
 
@@ -217,8 +247,8 @@ std::string spirv_to_glsl (const std::vector<uint32_t>& source, GlVersion versio
     options.version = getVersion(version);
     options.es = false;
     options.vulkan_semantics = false;
-    options.separate_shader_objects = true;
-    options.enable_420pack_extension = (options.version == 450);
+    options.separate_shader_objects = false;
+    options.enable_420pack_extension = false;
 
     compiler.set_common_options(options);
 
