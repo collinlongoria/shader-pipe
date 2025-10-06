@@ -22,6 +22,8 @@
 #include <spirv_cross.hpp>
 #include <spirv_glsl.hpp>
 
+using namespace shaderpipe;
+
 static const TBuiltInResource DefaultTBuiltInResource = {
     /* .MaxLights = */ 32,
     /* .MaxClipPlanes = */ 6,

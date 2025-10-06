@@ -13,6 +13,8 @@
 #include "shader_pipe.hpp"
 #include <iostream>
 
+using namespace shaderpipe;
+
 int main() {
     try {
         // Load a trivial GLSL vertex shader (you can also use load_shader_file())
