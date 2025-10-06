@@ -12,17 +12,6 @@
 
 #include "shader_pipe.hpp"
 #include <iostream>
-#include <fstream>
-
-void saveSpirvToFile(const std::vector<uint32_t>& spirv, const std::string& filename) {
-    std::ofstream file(filename, std::ios::binary | std::ios::out);
-    if (!file) {
-        throw std::runtime_error("Failed to open file for writing: " + filename);
-    }
-
-    file.write(reinterpret_cast<const char*>(spirv.data()),
-               spirv.size() * sizeof(uint32_t));
-}
 
 int main() {
     try {
@@ -35,14 +24,13 @@ int main() {
             }
         )";
 
+        // Get version of source shader
+        uint32_t version = get_glsl_version(vsSource);
+        std::cout << "Original shader version: " << version << "\n";
+
         // Compile GLSL → SPIR-V
         std::vector<uint32_t> spirv = glsl_to_spirv(vsSource, ShaderStage::VERTEX);
         std::cout << "Compiled SPIR-V size: " << spirv.size() << " words\n";
-        saveSpirvToFile(spirv, "test.spv");
-
-        for (int i = 0; i < 5 && i < spirv.size(); i++)
-            std::cout << std::hex << spirv[i] << " ";
-        std::cout << "\n";
 
         // Recompile SPIR-V → GLSL
         std::string glsl330 = spirv_to_glsl(spirv, GlVersion::GL_330);
@@ -50,6 +38,10 @@ int main() {
 
         std::string glsl450 = spirv_to_glsl(spirv, GlVersion::GL_450);
         std::cout << "\n[Recompiled GLSL 450]\n" << glsl450 << "\n";
+
+        // Get final version of shader
+        uint32_t version2 = get_glsl_version(glsl450);
+        std::cout << "Updated shader version: " << version2 << "\n";
 
     } catch (const std::exception& e) {
         std::cerr << "Shader test failed: " << e.what() << "\n";

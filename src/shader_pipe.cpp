@@ -138,29 +138,23 @@ static const TBuiltInResource DefaultTBuiltInResource = {
         /* .generalConstantMatrixVectorIndexing = */ 1,
     }};
 
-/*
-*     std::string shaderSrc = R"(#version 450 core
-                               layout(location = 0) in vec3 aPos;)";
+uint32_t get_glsl_version(const std::string& source) {
+    static std::string substr = "#version";
 
-    std::size_t pos = shaderSrc.find("#version");
+    std::size_t pos = source.find(substr);
     if (pos != std::string::npos) {
-        std::size_t end = shaderSrc.find('\n', pos);
-        std::string line = shaderSrc.substr(pos, end - pos);
+        std::size_t end = source.find('\n', pos);
+        std::string line = source.substr(pos, end - pos);
 
         std::istringstream iss(line);
         std::string directive, versionStr, profile;
-        iss >> directive >> versionStr >> profile;
+        iss >> directive >> versionStr >> profile; // will return profile too later
 
         if (directive == "#version") {
             int version = std::stoi(versionStr);
-            std::cout << "GLSL version: " << version << "\n";
-            if (!profile.empty())
-                std::cout << "Profile: " << profile << "\n";
+            return version;
         }
     }
- */
-uint32_t get_glsl_version(const std::string& source) {
-    static std::string substr = "#version";
     return 0;
 }
 
@@ -248,7 +242,7 @@ std::string spirv_to_glsl (const std::vector<uint32_t>& source, GlVersion versio
     options.es = false;
     options.vulkan_semantics = false;
     options.separate_shader_objects = false;
-    options.enable_420pack_extension = false;
+    options.enable_420pack_extension = (version != GlVersion::GL_450); // This will need to change if I add more versions
 
     compiler.set_common_options(options);
 
