@@ -4,12 +4,17 @@ project(ShaderPipe
         VERSION 1.0
         LANGUAGES CXX)
 
+# Compilation options
+option(BUILD_TEST "Build Test File" OFF)
+
 # Output directory
-set(OUT_BIN ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/bin)
-set(OUT_LIB ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/lib)
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${OUT_BIN})
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${OUT_LIB})
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${OUT_LIB})
+if (CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+    set(OUT_BIN ${CMAKE_SOURCE_DIR}/build/$<CONFIG>/bin)
+    set(OUT_LIB ${CMAKE_SOURCE_DIR}/build/$<CONFIG>/lib)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${OUT_BIN})
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${OUT_LIB})
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${OUT_LIB})
+endif()
 
 # Third party
 set(SPIRV_SKIP_EXECUTABLES ON CACHE BOOL "" FORCE)
@@ -26,6 +31,12 @@ add_library(shaderpipe SHARED
         src/shader_pipe.cpp
         include/shader_pipe.hpp
 )
+
+# Vulkan / Spir-v reflection tools
+find_package(Vulkan REQUIRED)
+
+target_include_directories(shaderpipe PUBLIC ${Vulkan_INCLUDE_DIRS})
+target_link_libraries(shaderpipe PRIVATE ${Vulkan_LIBRARIES})
 
 target_compile_definitions(shaderpipe PRIVATE SHADERPIPE_EXPORTS)
 
@@ -51,8 +62,11 @@ set_target_properties(shaderpipe PROPERTIES
 )
 
 # Test executable
-add_executable(shaderpipe_test src/main.cpp)
+if(BUILD_TEST)
+    message("Building shaderpipe test...")
+    add_executable(shaderpipe_test src/main.cpp)
 
-target_link_libraries(shaderpipe_test
-        PRIVATE shaderpipe
-)
+    target_link_libraries(shaderpipe_test
+            PRIVATE shaderpipe
+    )
+endif()

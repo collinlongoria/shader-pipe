@@ -16,13 +16,12 @@
 #include <string>
 #include <sstream>
 
+#include <vulkan/vulkan.h>
 #include <glslang/Public/ShaderLang.h>
 #include <SPIRV/GlslangToSpv.h>
 #include <glslang/Include/ResourceLimits.h>
 #include <spirv_cross.hpp>
 #include <spirv_glsl.hpp>
-
-using namespace shaderpipe;
 
 static const TBuiltInResource DefaultTBuiltInResource = {
     /* .MaxLights = */ 32,
@@ -140,6 +139,93 @@ static const TBuiltInResource DefaultTBuiltInResource = {
         /* .generalConstantMatrixVectorIndexing = */ 1,
     }};
 
+namespace shaderpipe {
+
+struct DescriptorBindingInfo {
+    uint32_t set;
+    uint32_t binding;
+    std::string name;
+    VkDescriptorType type;
+    uint32_t count;
+    VkShaderStageFlags stageFlags;
+};
+
+struct PushConstantInfo {
+    uint32_t offset;
+    uint32_t size;
+    VkShaderStageFlags stageFlags;
+};
+
+struct InputAttributeInfo {
+    uint32_t location;
+    std::string name;
+    uint32_t vecSize;
+    uint32_t bitWidth;
+};
+
+struct ShaderReflection {
+    std::vector<DescriptorBindingInfo> descriptorBindings;
+    std::vector<PushConstantInfo> pushConstants;
+    std::vector<InputAttributeInfo> inputs;
+    std::vector<InputAttributeInfo> outputs;
+};
+
+struct CompiledShader {
+    std::vector<uint32_t> spirv;
+    ShaderReflection reflection;
+};
+
+static EShLanguage shader_stage_to_glslang (ShaderStage s) {
+    switch (s) {
+    default: case ShaderStage::VERTEX: return EShLangVertex;
+    case ShaderStage::TESS_CONTROL: return EShLangTessControl;
+    case ShaderStage::TESS_EVAL: return EShLangTessEvaluation;
+    case ShaderStage::GEOMETRY: return EShLangGeometry;
+    case ShaderStage::FRAGMENT: return EShLangFragment;
+    case ShaderStage::COMPUTE: return EShLangCompute;
+    case ShaderStage::RAYGEN: return EShLangRayGen;
+    case ShaderStage::INTERSECT: return EShLangIntersect;
+    case ShaderStage::ANY_HIT: return EShLangAnyHit;
+    case ShaderStage::CLOSEST_HIT: return EShLangClosestHit;
+    case ShaderStage::MISS: return EShLangMiss;
+    case ShaderStage::CALLABLE: return EShLangCallable;
+    case ShaderStage::TASK: return EShLangTask;
+    case ShaderStage::MESH: return EShLangMesh;
+    }  // not sure what else to default to
+};
+
+static uint32_t gl_version_enum_to_int (GlVersion v) {
+    switch (v) {
+    case GlVersion::GL_310: return 310;
+    case GlVersion::GL_330: return 330;
+    default: case GlVersion::GL_450: return 450;
+        // Maybe default should be 310
+    }
+};
+
+static glslang::EShTargetClientVersion vk_version_to_glslang(VKVersion v) {
+    switch (v) {
+    case VKVersion::VK_1_0: return glslang::EShTargetVulkan_1_0;
+    case VKVersion::VK_1_1: return glslang::EShTargetVulkan_1_1;
+    case VKVersion::VK_1_2: return glslang::EShTargetVulkan_1_2;
+    case VKVersion::VK_1_3: return glslang::EShTargetVulkan_1_3;
+    case VKVersion::VK_1_4: return glslang::EShTargetVulkan_1_4;
+    }
+    return glslang::EShTargetVulkan_1_0;
+}
+
+static glslang::EShTargetLanguageVersion vk_version_to_spirv_version(VKVersion v) {
+    switch (v) {
+    case VKVersion::VK_1_0: return glslang::EShTargetSpv_1_0;
+    case VKVersion::VK_1_1: return glslang::EShTargetSpv_1_3;
+    case VKVersion::VK_1_2: return glslang::EShTargetSpv_1_5;
+    case VKVersion::VK_1_3:
+    case VKVersion::VK_1_4:
+        return glslang::EShTargetSpv_1_6; // TODO: may need to handle compatability for spv 1.5
+    }
+    return glslang::EShTargetSpv_1_0;
+}
+
 uint32_t get_glsl_version(const std::string& source) {
     static std::string substr = "#version";
 
@@ -150,7 +236,7 @@ uint32_t get_glsl_version(const std::string& source) {
 
         std::istringstream iss(line);
         std::string directive, versionStr, profile;
-        iss >> directive >> versionStr >> profile; // will return profile too later
+        iss >> directive >> versionStr >> profile; // profile can be safely ignored for now.
 
         if (directive == "#version") {
             int version = std::stoi(versionStr);
@@ -175,37 +261,22 @@ std::string load_shader_file(const std::string& filename) {
     return buffer.str();
 }
 
-std::vector<uint32_t> glsl_to_spirv(const std::string &source, ShaderStage stage) {
-    auto getStage = [](ShaderStage s) -> EShLanguage {
-      switch (s) {
-      default: case ShaderStage::VERTEX: return EShLangVertex;
-      case ShaderStage::TESS_CONTROL: return EShLangTessControl;
-      case ShaderStage::TESS_EVAL: return EShLangTessEvaluation;
-      case ShaderStage::GEOMETRY: return EShLangGeometry;
-      case ShaderStage::FRAGMENT: return EShLangFragment;
-      case ShaderStage::COMPUTE: return EShLangCompute;
-      case ShaderStage::RAYGEN: return EShLangRayGen;
-      case ShaderStage::INTERSECT: return EShLangIntersect;
-      case ShaderStage::ANY_HIT: return EShLangAnyHit;
-      case ShaderStage::CLOSEST_HIT: return EShLangClosestHit;
-      case ShaderStage::MISS: return EShLangMiss;
-      case ShaderStage::CALLABLE: return EShLangCallable;
-      case ShaderStage::TASK: return EShLangTask;
-      case ShaderStage::MESH: return EShLangMesh;
-      }  // not sure what else to default to
-    };
-
+std::vector<uint32_t> glsl_to_spirv(const std::string &source, ShaderStage stage, VKVersion targetVulkanVersion) {
     const char* glslSource = source.c_str();
 
     glslang::InitializeProcess();
 
-    auto sStage = getStage(stage);
+    auto sStage = shader_stage_to_glslang(stage);
     glslang::TShader shader(sStage);
     shader.setStrings(&glslSource, 1);
 
-    shader.setEnvInput(glslang::EShSourceGlsl, sStage, glslang::EShClientOpenGL, 330);
-    shader.setEnvClient(glslang::EShClientOpenGL, glslang::EShTargetOpenGL_450);
-    shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_0);
+    uint32_t glslVersion = get_glsl_version(source);
+    const auto vulkanVersion = vk_version_to_glslang(targetVulkanVersion);
+    const auto spvVersion = vk_version_to_spirv_version(targetVulkanVersion);
+
+    shader.setEnvInput(glslang::EShSourceGlsl, sStage, glslang::EShClientVulkan, static_cast<int>(glslVersion));
+    shader.setEnvClient(glslang::EShClientVulkan, vulkanVersion);
+    shader.setEnvTarget(glslang::EShTargetSpv, spvVersion);
 
     if (!shader.parse(&DefaultTBuiltInResource, 450, false, EShMsgDefault)) {
         throw std::runtime_error(shader.getInfoLog());
@@ -226,27 +297,25 @@ std::vector<uint32_t> glsl_to_spirv(const std::string &source, ShaderStage stage
     return spirv;
 }
 
-std::string spirv_to_glsl (const std::vector<uint32_t>& source, GlVersion version) {
-    auto getVersion = [](GlVersion v) -> uint32_t {
-        switch (v) {
-        case GlVersion::GL_310: return 310;
-        case GlVersion::GL_330: return 330;
-        default: case GlVersion::GL_450: return 450;
-            // Maybe default should be 310
-        }
-    };
+CompiledShader glsl_to_spirv_with_reflection(const std::string &source, ShaderStage stage) noexcept {
+    auto spirv = glsl_to_spirv(source, stage);
+    auto refl = reflect_spirv(spirv);
+    return { std::move(spirv), std::move(refl) };
+}
 
+std::string spirv_to_glsl (const std::vector<uint32_t>& source, GlVersion version) {
     spirv_cross::CompilerGLSL compiler(source);
 
     // Options for GLSL output
     spirv_cross::CompilerGLSL::Options options;
-    options.version = getVersion(version);
+    options.version = gl_version_enum_to_int(version);
     options.es = false;
     options.vulkan_semantics = false;
     options.separate_shader_objects = false;
-    options.enable_420pack_extension = (version != GlVersion::GL_450); // This will need to change if I add more versions
+    options.enable_420pack_extension = (version != GlVersion::GL_450); // TODO: If GL versions are extended, this line will need to be altered to properly handle more than one version that doesn't need the extension.
 
     compiler.set_common_options(options);
 
     return compiler.compile();
+}
 }

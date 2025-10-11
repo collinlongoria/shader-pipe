@@ -55,10 +55,27 @@ enum class GlVersion : uint32_t {
     GL_450, // Desktop
 };
 
-SHADERPIPE_API uint32_t              get_glsl_version(const std::string& source);
-SHADERPIPE_API std::string           load_shader_file(const std::string& filename);
-SHADERPIPE_API std::vector<uint32_t> glsl_to_spirv   (const std::string& source, ShaderStage stage);
-SHADERPIPE_API std::string           spirv_to_glsl   (const std::vector<uint32_t>& source, GlVersion version = GlVersion::GL_450);
+// This enum will also determine the spir-v compiler version.
+enum class VKVersion : uint32_t {
+    VK_1_0,
+    VK_1_1,
+    VK_1_2,
+    VK_1_3,
+    VK_1_4,
+};
+
+struct SHADERPIPE_API DescriptorBindingInfo;
+struct SHADERPIPE_API PushConstantInfo;
+struct SHADERPIPE_API InputAttributeInfo;
+struct SHADERPIPE_API ShaderReflection;
+struct SHADERPIPE_API CompiledShader;
+
+SHADERPIPE_API uint32_t              get_glsl_version              (const std::string& source);
+SHADERPIPE_API std::string           load_shader_file              (const std::string& filename);
+SHADERPIPE_API std::vector<uint32_t> glsl_to_spirv                 (const std::string& source, ShaderStage stage);
+SHADERPIPE_API ShaderReflection      reflect_spirv                 (const std::vector<uint32_t>& source);
+SHADERPIPE_API CompiledShader      glsl_to_spirv_with_reflection   (const std::string& source, ShaderStage stage) noexcept;
+SHADERPIPE_API std::string           spirv_to_glsl                 (const std::vector<uint32_t>& source, GlVersion version = GlVersion::GL_450);
 }
 
 #endif //SHADER_PIPE_SHADER_PIPE_HPP
