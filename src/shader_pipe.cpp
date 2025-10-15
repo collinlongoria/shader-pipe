@@ -175,6 +175,26 @@ struct CompiledShader {
     ShaderReflection reflection;
 };
 
+static VkShaderStageFlagBits exec_model_to_stage(spirv_cross::ExecutionModel m) {
+    switch (m) {
+    case spv::ExecutionModelVertex: return VK_SHADER_STAGE_VERTEX_BIT;
+    case spv::ExecutionModelTessellationControl: return VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
+    case spv::ExecutionModelTessellationEvaluation: return VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+    case spv::ExecutionModelGeometry: return VK_SHADER_STAGE_GEOMETRY_BIT;
+    case spv::ExecutionModelFragment: return VK_SHADER_STAGE_FRAGMENT_BIT;
+    case spv::ExecutionModelGLCompute: return VK_SHADER_STAGE_COMPUTE_BIT;
+    case spv::ExecutionModelRayGenerationKHR: return VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+    case spv::ExecutionModelIntersectionKHR: return VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
+    case spv::ExecutionModelAnyHitKHR: return VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+    case spv::ExecutionModelClosestHitKHR: return VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+    case spv::ExecutionModelMissKHR: return VK_SHADER_STAGE_MISS_BIT_KHR;
+    case spv::ExecutionModelCallableKHR: return VK_SHADER_STAGE_CALLABLE_BIT_KHR;
+    case spv::ExecutionModelTaskEXT: return VK_SHADER_STAGE_TASK_BIT_EXT;
+    case spv::ExecutionModelMeshEXT: return VK_SHADER_STAGE_MESH_BIT_EXT;
+    default: return static_cast<VkShaderStageFlagBits>(0);
+    }
+}
+
 static EShLanguage shader_stage_to_glslang (ShaderStage s) {
     switch (s) {
     default: case ShaderStage::VERTEX: return EShLangVertex;
@@ -224,6 +244,64 @@ static glslang::EShTargetLanguageVersion vk_version_to_spirv_version(VKVersion v
         return glslang::EShTargetSpv_1_6; // TODO: may need to handle compatability for spv 1.5
     }
     return glslang::EShTargetSpv_1_0;
+}
+
+static uint32_t descriptor_count_from_type(const spirv_cross::Compiler& comp, const spirv_cross::SPIRType& type) {
+    // No array => single descriptor
+    if (type.array.empty())
+        return 1;
+
+    uint32_t total = 1;
+
+    // Each dimension can be:
+    //  - a literal (array_size_literal[i] == true)  => use that value
+    //  - a specialization / non-literal             => conservatively use 1
+    //  - a runtime array (size 0)                   => treat as 1 for descriptor count
+    for (size_t i = 0; i < type.array.size(); ++i)
+    {
+        uint32_t dim = 1;
+
+        if (type.array_size_literal.size() > i && type.array_size_literal[i])
+        {
+            // Literal size directly in the SPIR-V
+            dim = type.array[i];
+        }
+        else
+        {
+            // Non-literal (specialization constant) or missing literal flag:
+            // We cannot legally evaluate it here (no public API for that),
+            // so use 1 to keep descriptor count valid.
+            // If you later want to resolve this, read the SpecConstant at pipeline creation time.
+            dim = 1;
+        }
+
+        // Runtime arrays sometimes come through as 0. Clamp to 1 for descriptor count.
+        if (dim == 0)
+            dim = 1;
+
+        total *= dim;
+    }
+
+    return total == 0 ? 1u : total;
+}
+
+static void add_descriptor_from_resource(ShaderReflection& out,
+                                         const spirv_cross::Compiler& comp,
+                                         const spirv_cross::Resource& res,
+                                         VkDescriptorType dtype,
+                                         VkShaderStageFlags stageFlags)
+{
+    const auto& type = comp.get_type(res.type_id);
+    DescriptorBindingInfo info{};
+    info.set    = comp.get_decoration(res.id, spv::DecorationDescriptorSet);
+    info.binding= comp.get_decoration(res.id, spv::DecorationBinding);
+    info.name   = comp.get_name(res.id);
+    if (info.name.empty())
+        info.name = comp.get_fallback_name(res.id);
+    info.type   = dtype;
+    info.count  = descriptor_count_from_type(comp, type);
+    info.stageFlags = stageFlags;
+    out.descriptorBindings.push_back(std::move(info));
 }
 
 uint32_t get_glsl_version(const std::string& source) {
@@ -297,8 +375,8 @@ std::vector<uint32_t> glsl_to_spirv(const std::string &source, ShaderStage stage
     return spirv;
 }
 
-CompiledShader glsl_to_spirv_with_reflection(const std::string &source, ShaderStage stage) noexcept {
-    auto spirv = glsl_to_spirv(source, stage);
+CompiledShader glsl_to_spirv_with_reflection(const std::string &source, ShaderStage stage, VKVersion targetVulkanVersion) noexcept {
+    auto spirv = glsl_to_spirv(source, stage, targetVulkanVersion);
     auto refl = reflect_spirv(spirv);
     return { std::move(spirv), std::move(refl) };
 }
@@ -317,5 +395,90 @@ std::string spirv_to_glsl (const std::vector<uint32_t>& source, GlVersion versio
     compiler.set_common_options(options);
 
     return compiler.compile();
+}
+
+SHADERPIPE_API ShaderReflection reflect_spirv (const std::vector<uint32_t>& source) {
+  ShaderReflection reflection{};
+
+    spirv_cross::Compiler comp(source);
+
+    // Determine stage flags from execution model.
+    auto stageBit = exec_model_to_stage(comp.get_execution_model());
+    VkShaderStageFlags stageFlags = stageBit ? (VkShaderStageFlags)stageBit : 0;
+
+    // Query all resources.
+    spirv_cross::ShaderResources res = comp.get_shader_resources();
+
+    // --- Descriptors ---
+    for (auto& ubo : res.uniform_buffers) {
+        add_descriptor_from_resource(reflection, comp, ubo, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, stageFlags);
+    }
+    for (auto& ssbo : res.storage_buffers) {
+        add_descriptor_from_resource(reflection, comp, ssbo, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, stageFlags);
+    }
+    for (auto& img : res.sampled_images) {
+        // Combined image-sampler
+        add_descriptor_from_resource(reflection, comp, img, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, stageFlags);
+    }
+    for (auto& img : res.separate_images) {
+        add_descriptor_from_resource(reflection, comp, img, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, stageFlags);
+    }
+    for (auto& smp : res.separate_samplers) {
+        add_descriptor_from_resource(reflection, comp, smp, VK_DESCRIPTOR_TYPE_SAMPLER, stageFlags);
+    }
+    for (auto& img : res.storage_images) {
+        add_descriptor_from_resource(reflection, comp, img, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, stageFlags);
+    }
+    for (auto& inAtt : res.subpass_inputs) {
+        add_descriptor_from_resource(reflection, comp, inAtt, VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, stageFlags);
+    }
+#ifdef VK_KHR_acceleration_structure
+    for (auto& as : res.acceleration_structures) {
+        add_descriptor_from_resource(reflection, comp, as, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, stageFlags);
+    }
+#endif
+
+    // --- Push constants ---
+    for (auto& pcb : res.push_constant_buffers) {
+        // The push constant buffer is a single struct; get its declared size.
+        const auto& type = comp.get_type(pcb.base_type_id);
+        uint32_t size = static_cast<uint32_t>(comp.get_declared_struct_size(type));
+
+        // Compute minimal/active ranges if you want finer granularity:
+        // auto ranges = comp.get_active_buffer_ranges(pcb.id); (optional)
+        PushConstantInfo pci{};
+        pci.offset = 0;
+        pci.size   = size;
+        pci.stageFlags = stageFlags;
+        reflection.pushConstants.push_back(pci);
+    }
+
+    // --- Stage inputs ---
+    for (auto& in : res.stage_inputs) {
+        const auto& t = comp.get_type(in.type_id);
+        InputAttributeInfo ai{};
+        ai.location = comp.get_decoration(in.id, spv::DecorationLocation);
+        ai.name     = comp.get_name(in.id);
+        if (ai.name.empty())
+            ai.name = comp.get_fallback_name(in.id);
+        ai.vecSize  = t.vecsize;
+        ai.bitWidth = t.width;
+        reflection.inputs.push_back(std::move(ai));
+    }
+
+    // --- Stage outputs ---
+    for (auto& outRes : res.stage_outputs) {
+        const auto& t = comp.get_type(outRes.type_id);
+        InputAttributeInfo ao{};
+        ao.location = comp.get_decoration(outRes.id, spv::DecorationLocation);
+        ao.name     = comp.get_name(outRes.id);
+        if (ao.name.empty())
+            ao.name = comp.get_fallback_name(outRes.id);
+        ao.vecSize  = t.vecsize;
+        ao.bitWidth = t.width;
+        reflection.outputs.push_back(std::move(ao));
+    }
+
+    return reflection;
 }
 }
