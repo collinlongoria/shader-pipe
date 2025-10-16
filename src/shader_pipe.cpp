@@ -141,40 +141,6 @@ static const TBuiltInResource DefaultTBuiltInResource = {
 
 namespace shaderpipe {
 
-struct DescriptorBindingInfo {
-    uint32_t set;
-    uint32_t binding;
-    std::string name;
-    VkDescriptorType type;
-    uint32_t count;
-    VkShaderStageFlags stageFlags;
-};
-
-struct PushConstantInfo {
-    uint32_t offset;
-    uint32_t size;
-    VkShaderStageFlags stageFlags;
-};
-
-struct InputAttributeInfo {
-    uint32_t location;
-    std::string name;
-    uint32_t vecSize;
-    uint32_t bitWidth;
-};
-
-struct ShaderReflection {
-    std::vector<DescriptorBindingInfo> descriptorBindings;
-    std::vector<PushConstantInfo> pushConstants;
-    std::vector<InputAttributeInfo> inputs;
-    std::vector<InputAttributeInfo> outputs;
-};
-
-struct CompiledShader {
-    std::vector<uint32_t> spirv;
-    ShaderReflection reflection;
-};
-
 static VkShaderStageFlagBits exec_model_to_stage(spirv_cross::ExecutionModel m) {
     switch (m) {
     case spv::ExecutionModelVertex: return VK_SHADER_STAGE_VERTEX_BIT;
@@ -271,7 +237,6 @@ static uint32_t descriptor_count_from_type(const spirv_cross::Compiler& comp, co
             // Non-literal (specialization constant) or missing literal flag:
             // We cannot legally evaluate it here (no public API for that),
             // so use 1 to keep descriptor count valid.
-            // If you later want to resolve this, read the SpecConstant at pipeline creation time.
             dim = 1;
         }
 
@@ -409,7 +374,7 @@ SHADERPIPE_API ShaderReflection reflect_spirv (const std::vector<uint32_t>& sour
     // Query all resources.
     spirv_cross::ShaderResources res = comp.get_shader_resources();
 
-    // --- Descriptors ---
+    // Descriptors
     for (auto& ubo : res.uniform_buffers) {
         add_descriptor_from_resource(reflection, comp, ubo, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, stageFlags);
     }
@@ -438,7 +403,7 @@ SHADERPIPE_API ShaderReflection reflect_spirv (const std::vector<uint32_t>& sour
     }
 #endif
 
-    // --- Push constants ---
+    // Push Constants
     for (auto& pcb : res.push_constant_buffers) {
         // The push constant buffer is a single struct; get its declared size.
         const auto& type = comp.get_type(pcb.base_type_id);
@@ -453,7 +418,7 @@ SHADERPIPE_API ShaderReflection reflect_spirv (const std::vector<uint32_t>& sour
         reflection.pushConstants.push_back(pci);
     }
 
-    // --- Stage inputs ---
+    // Stage Inputs
     for (auto& in : res.stage_inputs) {
         const auto& t = comp.get_type(in.type_id);
         InputAttributeInfo ai{};
@@ -466,7 +431,7 @@ SHADERPIPE_API ShaderReflection reflect_spirv (const std::vector<uint32_t>& sour
         reflection.inputs.push_back(std::move(ai));
     }
 
-    // --- Stage outputs ---
+    // Stage Outputs
     for (auto& outRes : res.stage_outputs) {
         const auto& t = comp.get_type(outRes.type_id);
         InputAttributeInfo ao{};

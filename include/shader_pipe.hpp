@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <vulkan/vulkan_core.h>
 
 #ifdef SHADERPIPE_EXPORTS
     #define SHADERPIPE_API __declspec(dllexport)
@@ -64,11 +65,39 @@ enum class VKVersion : uint32_t {
     VK_1_4,
 };
 
-struct SHADERPIPE_API DescriptorBindingInfo;
-struct SHADERPIPE_API PushConstantInfo;
-struct SHADERPIPE_API InputAttributeInfo;
-struct SHADERPIPE_API ShaderReflection;
-struct SHADERPIPE_API CompiledShader;
+struct SHADERPIPE_API DescriptorBindingInfo {
+    uint32_t set;
+    uint32_t binding;
+    std::string name;
+    VkDescriptorType type;
+    uint32_t count;
+    VkShaderStageFlags stageFlags;
+};
+
+struct SHADERPIPE_API PushConstantInfo {
+    uint32_t offset;
+    uint32_t size;
+    VkShaderStageFlags stageFlags;
+};
+
+struct SHADERPIPE_API InputAttributeInfo {
+    uint32_t location;
+    std::string name;
+    uint32_t vecSize;
+    uint32_t bitWidth;
+};
+
+struct SHADERPIPE_API ShaderReflection {
+    std::vector<DescriptorBindingInfo> descriptorBindings;
+    std::vector<PushConstantInfo> pushConstants;
+    std::vector<InputAttributeInfo> inputs;
+    std::vector<InputAttributeInfo> outputs;
+};
+
+struct SHADERPIPE_API CompiledShader {
+    std::vector<uint32_t> spirv;
+    ShaderReflection reflection;
+};
 
 SHADERPIPE_API uint32_t              get_glsl_version              (const std::string& source);
 SHADERPIPE_API std::string           load_shader_file              (const std::string& filename);
